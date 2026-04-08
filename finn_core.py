@@ -2,7 +2,7 @@
 import requests, os, re, random, json, datetime, time, string
 from finn_memory import FinnMemory
 
-OR_KEY = os.environ.get("OPENROUTER_KEY=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", "")
+OR_KEY = os.environ.get("OPENROUTER_KEY", "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")
 OR_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODELS = ["google/gemma-2-9b-it:free", "qwen/qwen-2.5-7b-instruct:free"]
 
@@ -47,7 +47,8 @@ def _analyze_emotion(text):
     if any(w in t for w in ["устал", "сон", "тихо", "спокой"]): delta["energy"] -= 0.2
     return delta
 
-# === 💭 ПАМЯТЬ И ФАКТЫ ===def _extract_facts(text, user_name):
+# === 💭 ПАМЯТЬ И ФАКТЫ ===
+def _extract_facts(text, user_name):
     facts = []
     t = text.lower()
     if "зовут" in t or "меня" in t:
@@ -102,13 +103,18 @@ def _filter_forbidden(text):
     return result
 
 def _filter_emojis(text):
-    for e in BANNED_EMOJIS: text = text.replace(e, "")
+    for e in BANNED_EMOJIS: 
+        if e:  # Проверка на пустую строку
+            text = text.replace(e, "")
     count = 0
     out = ""
     for c in text:
         if c in ALLOWED_EMOJIS:
-            if count < 1: out += c; count += 1
-        else: out += c
+            if count < 1: 
+                out += c
+                count += 1
+        else: 
+            out += c
     return out.strip()
 
 def _enforce_style(text):
@@ -117,9 +123,11 @@ def _enforce_style(text):
     sentences = re.split(r'([.!?]+)', text)
     limited = []
     for i in range(0, len(sentences)-1, 2):
-        if len(limited) >= 3: break
+        if len(limited) >= 3: 
+            break
         s = sentences[i].strip()
-        if s and len(s) < 90: limited.append(s + sentences[i+1])
+        if s and len(s) < 90: 
+            limited.append(s + sentences[i+1])
     return ' '.join(limited).strip()
 
 def _inject_human_flaws(text, state):
@@ -146,9 +154,12 @@ def _pipeline(text, state):
 LORE_DB = {}
 def load_lore():
     global LORE_DB
-    if not LORE_DB:        try:
-            with open("lore_db.json", "r", encoding="utf-8") as f: LORE_DB = json.load(f)
-        except: pass
+    if not LORE_DB:
+        try:
+            with open("lore_db.json", "r", encoding="utf-8") as f: 
+                LORE_DB = json.load(f)
+        except:
+            pass
     return LORE_DB
 
 def retrieve_lore(user_text, max_chunks=2):
@@ -157,27 +168,37 @@ def retrieve_lore(user_text, max_chunks=2):
     hits = []
     for key, data in LORE_DB.items():
         score = 0
-        if key.replace("_", " ") in text_low: score += 5
+        if key.replace("_", " ") in text_low: 
+            score += 5
         for w in key.split("_"):
-            if w in text_low: score += 2
+            if w in text_low: 
+                score += 2
         desc = data.get("text", "").lower()
         for w in words:
-            if w in desc: score += 1
-        if score > 2: hits.append((score, key, data.get("text", "")))
+            if w in desc: 
+                score += 1
+        if score > 2: 
+            hits.append((score, key, data.get("text", "")))
     hits.sort(key=lambda x: x[0], reverse=True)
-    if not hits: return ""
+    if not hits: 
+        return ""
     block = "📖 ЛОР:\n"
-    for _, key, txt in hits[:max_chunks]: block += f"• {key.replace('_',' ').title()}: {txt}\n"
+    for _, key, txt in hits[:max_chunks]: 
+        block += f"• {key.replace('_',' ').title()}: {txt}\n"
     return block.strip()
 
 # === 🧠 ПРОМПТ ===
 def build_prompt(session, recalled_memories):
     state = session["emotional_state"]
     mood = "energetic"
-    if state["sadness"] > 0.5: mood = "concerned"
-    elif state["anger"] > 0.4: mood = "angry"
-    elif state["joy"] > 0.5: mood = "playful"
-    elif state["energy"] < 0.4: mood = "calm"
+    if state["sadness"] > 0.5: 
+        mood = "concerned"
+    elif state["anger"] > 0.4: 
+        mood = "angry"
+    elif state["joy"] > 0.5: 
+        mood = "playful"
+    elif state["energy"] < 0.4: 
+        mood = "calm"
     
     facts = "\n".join([f"- {m['fact']}" for m in recalled_memories]) or "Пока пусто."
     hist = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in session["history"][-4:]]) or "Новый диалог."
@@ -206,7 +227,8 @@ def build_prompt(session, recalled_memories):
 
 # === 🤖 ЗАПРОС ===
 def get_reply(user_text, session):
-    if not OR_KEY: return "⚙️ Ключ не найден."
+    if not OR_KEY: 
+        return "⚙️ Ключ не найден."
     if not user_text or len(user_text.strip()) < 2:
         return random.choice(["Ты чё, уснул? 😴", "Эй, я тут! *машет рукой*"])
     
@@ -228,15 +250,22 @@ def get_reply(user_text, session):
     for model in MODELS:
         try:
             resp = requests.post(OR_URL, headers={
-                "Authorization": f"Bearer {OR_KEY}", "Content-Type": "application/json",
-                "HTTP-Referer": "https://t.me/finn_bot", "X-Title": "FinnBot"
+                "Authorization": f"Bearer {OR_KEY}", 
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://t.me/finn_bot", 
+                "X-Title": "FinnBot"
             }, json={
-                "model": model, "messages": [{"role": "user", "content": f"{prompt}\nСобеседник: {user_text}"}],
-                "temperature": 0.75, "max_tokens": 160, "stop": ["\n\n\n"]
+                "model": model, 
+                "messages": [{"role": "user", "content": f"{prompt}\nСобеседник: {user_text}"}],
+                "temperature": 0.75, 
+                "max_tokens": 160, 
+                "stop": ["\n\n\n"]
             }, timeout=30)
             if resp.status_code == 200:
                 reply = resp.json()["choices"][0]["message"]["content"].strip()
-                if any(w in reply.lower() for w in ["бот", "ии", "модель", "сервер", "код"]): continue
+                if any(w in reply.lower() for w in ["бот", "ии", "модель", "сервер", "код"]): 
+                    continue
                 return _pipeline(reply, session["emotional_state"])
-        except: continue
+        except: 
+            continue
     return "📡 Сигнал потерян. *пожимает плечами*"
