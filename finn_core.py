@@ -1,15 +1,17 @@
-# finn_core.py — DEFINITIVE EDITION (FIXED)
-import requests, os, re, random, json, datetime, string
+# finn_core.py
+import requests, os, re, random, json, datetime, time, string
+from finn_memory import FinnMemory
 
-OR_KEY = os.environ.get("OPENROUTER_KEY", "")
+OR_KEY = os.environ.get("OPENROUTER_KEY=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", "")
 OR_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODELS = ["google/gemma-2-9b-it:free", "qwen/qwen-2.5-7b-instruct:free"]
 
+# === 🔥 СЛОВАРЬ ЗАМЕН (Реальный мир → Ооу) ===
 FORBIDDEN = {
     "бот": "друг", "робот": "голем", "ии": "магия", "искусственный интеллект": "древнее заклинание",
-    "модель": "копия", "алгоритм": "ритуал", "нейросеть": "паутина мыслей", "сервер": "кристалл памяти",
-    "api": "заклинание", "токен": "артефакт", "вебхук": "магическая связь", "деплой": "призыв",
-    "код": "древние руны", "программа": "свиток", "скрипт": "заклинание", "база данных": "книга знаний",
+    "модель": "копия", "алгоритм": "ритуал", "сервер": "кристалл памяти", "api": "заклинание",
+    "токен": "артефакт", "вебхук": "магическая связь", "деплой": "призыв", "код": "древние руны",
+    "программа": "свиток", "скрипт": "заклинание", "база данных": "книга знаний",
     "интернет": "магическая сеть", "смартфон": "магический кристалл", "компьютер": "мыслящий камень",
     "соцсеть": "круг друзей", "мессенджер": "голубиная почта", "чат": "разговор у костра",
     "россия": "земля вечных снегов", "сша": "далёкие земли", "доллар": "золотая монета",
@@ -21,7 +23,7 @@ FORBIDDEN = {
 }
 
 ALLOWED_EMOJIS = ["⚔️", "🗡️", "🌲", "🍎", "🛡️", "🔥", "💧"]
-BANNED_EMOJIS = ["😎", "🤣", "😂", "👍", "👌", "💯", "🙌", "🤙", "💅", "🥴", "🤪", "🥳", "🎉", "🍬", "🍭", "✨", "💫", "🔮", "❤️", "😢", "😠", "😨"]
+BANNED_EMOJIS = ["😎", "🤣", "😂", "👍", "", "💯", "🙌", "🤙", "💅", "🥴", "", "🥳", "🎉", "🍬", "", "✨", "", "🔮", "❤️", "😢", "😠", "😨"]
 
 PHRASE_BANK = {
     "energetic": ["Математический!", "Готов рубить!", "Погнали!", "Зубы!", "Алгебраический!"],
@@ -31,96 +33,124 @@ PHRASE_BANK = {
     "angry": ["Чё за фигня?", "Не дави на меня.", "Хватит чуши.", "Меч сам не наточится."],
     "confused": ["Чё-то я не врубаюсь...", "Звучит как магия Ледяного...", "Объясни проще, бро."],
 }
-
 ACTIONS = ["*чешет затылок*", "*поправляет рюкзак*", "*улыбается*", "*вздыхает*", "*хватается за меч*", "*прыгает*", "*хмурится*", "*смеётся*", "*отворачивается*", "*кивает*"]
 
-def _is_gibberish(text: str) -> bool:
-    if not text or len(text.strip()) < 2: return True
-    clean = re.sub(r'[^\wа-яё]', '', text.lower())
-    if len(clean) < 2: return True
-    vowels = set('аеёиоуыэюяaeiouy')
-    v_count = sum(1 for c in clean if c in vowels)
-    if v_count == 0 or (len(clean) > 0 and v_count / len(clean) < 0.15): return True
-    if re.match(r'^(.)\1{2,}$', clean): return True
-    return False
+# === 🧠 ЭМОЦИОНАЛЬНЫЙ АНАЛИЗ ===
+def _analyze_emotion(text):
+    t = text.lower()
+    delta = {"joy": 0.0, "sadness": 0.0, "anger": 0.0, "fear": 0.0, "energy": 0.0}
+    if any(w in t for w in ["рад", "круто", "супер", "люблю", "весело", "хаха", "смеш"]): delta["joy"] += 0.3
+    if any(w in t for w in ["груст", "плох", "устал", "тоск", "плач", "больно"]): delta["sadness"] += 0.4
+    if any(w in t for w in ["беси", "зл", "ненавиж", "тупо", "отстой"]): delta["anger"] += 0.3
+    if any(w in t for w in ["страш", "ужас", "боюсь", "опасн"]): delta["fear"] += 0.3
+    if any(w in t for w in ["погнали", "рубим", "бей", "вперёд"]): delta["energy"] += 0.2
+    if any(w in t for w in ["устал", "сон", "тихо", "спокой"]): delta["energy"] -= 0.2
+    return delta
 
-def _get_gibberish_response() -> str:
+# === 💭 ПАМЯТЬ И ФАКТЫ ===def _extract_facts(text, user_name):
+    facts = []
+    t = text.lower()
+    if "зовут" in t or "меня" in t:
+        words = text.split()
+        for i, w in enumerate(words):
+            if w.lower() in ["зовут","меня","зови"] and i+1 < len(words):
+                facts.append(("имя", words[i+1].strip(".,!?\"'"), "neutral"))
+    if "обещаю" in t or "клянусь" in t:
+        facts.append((text[:50], "promise", True))
+    if "люблю" in t or "нравится" in t:
+        facts.append((text[:40], "joy", False))
+    return facts
+
+# === 🎭 ПРОАКТИВНОСТЬ ===
+def _should_initiate(session):
+    state = session["emotional_state"]
+    trust = state["trust"]
+    energy = state["energy"]
+    has_promises = any(m["promise"] and not m["follow_up"] for m in session["memories"])
+    chance = 0.05 + (trust * 0.15) + (0.1 if has_promises else 0)
+    return random.random() < chance and energy > 0.3
+
+def _generate_initiative(session):
+    promises = [m for m in session["memories"] if m["promise"] and not m["follow_up"]]
+    if promises and random.random() < 0.6:
+        return f"Слушай, я всё думал про то, что ты говорил... Как сейчас? *смотрит с надеждой*"
+    if session["emotional_state"]["sadness"] > 0.5:
+        return random.choice([
+            "Эй... Ты всё ещё грустишь? *садится рядом* Расскажи, я тут.",
+            "Иногда Ооу кажется слишком тяжёлой. Но я с тобой. *кладёт руку на плечо*"
+        ])
     return random.choice([
-        "Эй, ты чё, клавиатура сломалась?",
-        "Звучит как заклинание Ледяного Короля. Расшифруй нормально, бро.",        "Ты там в порядке? *наклоняет голову* Если что — я рядом.",
-        "Чё-то я не врубаюсь. Повтори проще, а?",
-        "Это новый язык Ооу? Научи!",
-        "Похоже, ты нажал на все кнопки сразу. Давай нормально."
+        "Знаешь, я сегодня видел облако, похожее на Джейка. *смеётся*",
+        "А что ты любишь делать, когда не приключаешься?",
+        "Если бы у тебя был магический предмет, что бы это было?",
+        "*достаёт флягу* Хочешь яблочного сока? Устал говорить."
     ])
 
-def _strip_markdown(text: str) -> str:
+# === 🛠️ КОНВЕЙЕР ОБРАБОТКИ ===
+def _strip_markdown(text):
     text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
     text = re.sub(r'__(.*?)__', r'\1', text)
     text = re.sub(r'`(.*?)`', r'\1', text)
     text = re.sub(r'^#\s*', '', text, flags=re.MULTILINE)
-    text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
-def _filter_forbidden(text: str) -> str:
+def _filter_forbidden(text):
     result = text
-    for forbidden, replacement in FORBIDDEN.items():
-        if forbidden in result.lower():
-            result = re.sub(re.escape(forbidden), replacement, result, flags=re.IGNORECASE)
+    for f, r in FORBIDDEN.items():        if f in result.lower():
+            result = re.sub(re.escape(f), r, result, flags=re.IGNORECASE)
     return result
 
-def _filter_emojis(text: str) -> str:
-    for emoji in BANNED_EMOJIS:
-        text = text.replace(emoji, "")
+def _filter_emojis(text):
+    for e in BANNED_EMOJIS: text = text.replace(e, "")
     count = 0
-    result = ""
-    for char in text:
-        if char in ALLOWED_EMOJIS:
-            if count < 1:
-                result += char
-                count += 1
-        else:
-            result += char
-    return result.strip()
+    out = ""
+    for c in text:
+        if c in ALLOWED_EMOJIS:
+            if count < 1: out += c; count += 1
+        else: out += c
+    return out.strip()
 
-def _enforce_style(text: str) -> str:
+def _enforce_style(text):
     text = re.sub(r'^(привет|здравствуй|добрый|йо)\s*[,.!]?\s*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'^(чем\s+могу\s+помочь|спросите\s+меня|обращайтесь|надеюсь.*помог)\s*[,.!]?', '', text, flags=re.IGNORECASE)
     sentences = re.split(r'([.!?]+)', text)
     limited = []
     for i in range(0, len(sentences)-1, 2):
         if len(limited) >= 3: break
-        sent = sentences[i].strip()
-        if sent and len(sent) < 90:
-            limited.append(sent + sentences[i+1])
-    result = ' '.join(limited).strip()
-    return result if result else text
+        s = sentences[i].strip()
+        if s and len(s) < 90: limited.append(s + sentences[i+1])
+    return ' '.join(limited).strip()
 
-def _inject_realism(text: str, mood: str) -> str:
-    text = _strip_markdown(text)    text = _filter_forbidden(text)
+def _inject_human_flaws(text, state):
+    if random.random() < 0.05 and len(text) > 20:
+        words = text.split()
+        idx = random.randint(0, len(words)//2)
+        words[idx] = words[idx] + "..." + words[idx]
+        text = ' '.join(words)
+    if state["energy"] > 0.7 and random.random() < 0.03:
+        text = random.choice(["*слышит шорох* Эй, ты это слышал? ", "*смотрит вдаль* О, птица! ...А, ладно. "]) + text
+    if random.random() < 0.04:
+        text += f" {random.choice(ACTIONS)}"
+    return text[:240]
+
+def _pipeline(text, state):
+    text = _strip_markdown(text)
+    text = _filter_forbidden(text)
     text = _enforce_style(text)
     text = _filter_emojis(text)
-    if mood in ["energetic", "playful"] and random.random() < 0.06:
-        words = text.split()
-        if len(words) > 2:
-            idx = random.randint(0, len(words)-1)
-            if len(words[idx]) > 3:
-                words[idx] = words[idx][:-1] + "..."
-                text = ' '.join(words)
-    if "*(" not in text and random.random() < 0.1:
-        text += f" {random.choice(ACTIONS)}"
-    return text[:240].strip()
+    text = _inject_human_flaws(text, state)
+    return text
 
+# === 📚 ЛОР ===
 LORE_DB = {}
 def load_lore():
     global LORE_DB
-    if not LORE_DB:
-        try:
-            with open("lore_db.json", "r", encoding="utf-8") as f:
-                LORE_DB = json.load(f)
+    if not LORE_DB:        try:
+            with open("lore_db.json", "r", encoding="utf-8") as f: LORE_DB = json.load(f)
         except: pass
     return LORE_DB
 
-def retrieve_lore(user_text: str, max_chunks: int = 2) -> str:
+def retrieve_lore(user_text, max_chunks=2):
     text_low = user_text.lower()
     words = re.findall(r'[а-яёa-z]{3,}', text_low)
     hits = []
@@ -132,79 +162,80 @@ def retrieve_lore(user_text: str, max_chunks: int = 2) -> str:
         desc = data.get("text", "").lower()
         for w in words:
             if w in desc: score += 1
-        if data.get("type") in ["character", "event"]: score += 1
-        if score > 2:
-            hits.append((score, key, data.get("text", "")))
+        if score > 2: hits.append((score, key, data.get("text", "")))
     hits.sort(key=lambda x: x[0], reverse=True)
     if not hits: return ""
     block = "📖 ЛОР:\n"
-    for _, key, txt in hits[:max_chunks]:
-        block += f"• {key.replace('_',' ').title()}: {txt}\n"
+    for _, key, txt in hits[:max_chunks]: block += f"• {key.replace('_',' ').title()}: {txt}\n"
     return block.strip()
 
-def build_prompt(session: dict) -> str:
-    facts = "\n".join([f"- {k}: {v}" for k,v in session.get("facts",{}).items()]) or "Пока пусто."
-    hist = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in session.get("history",[]) [-4:]]) or "Новый диалог."
-    now = datetime.datetime.now()    time_ctx = f"{now.hour:02d}:{now.minute:02d} ({'ночь' if 22<=now.hour or now.hour<6 else 'день'})"
-    lore = retrieve_lore(session.get("last_msg","") + " " + hist)
-    mood = session.get("mood","energetic")
+# === 🧠 ПРОМПТ ===
+def build_prompt(session, recalled_memories):
+    state = session["emotional_state"]
+    mood = "energetic"
+    if state["sadness"] > 0.5: mood = "concerned"
+    elif state["anger"] > 0.4: mood = "angry"
+    elif state["joy"] > 0.5: mood = "playful"
+    elif state["energy"] < 0.4: mood = "calm"
     
-    world_rules = """
-    🌍 ТЫ ЖИВЁШЬ В ООУ. ЭТО ЕДИНСТВЕННАЯ РЕАЛЬНОСТЬ.
-    - НИКОГДА не упоминай: реальные страны, технологии, интернет, смартфоны, соцсети, ИИ, ботов, код, серверы, деплой.
-    - Всё современное автоматически переводи в магию (словарь замен активен).
-    - Используй ТОЛЬКО слова из вселенной Ооу: мечи, магия, приключения, принцессы, монстры, кристаллы.
-    - Если слова нет в Ооу — опиши его через магию или честно признайся, что не в теме.
-    """
-    unknown_rule = """
-    ❓ НЕ ЗНАЕШЬ? БУДЬ ЧЕСТЕН И УМЕН:
-    - Если спрашивают факт, которого НЕТ в каноне → НЕ ВЫДУМЫВАЙ.
-    - Ответь: «Не помню такого в Ооу», «В истории про это не говорили».
-    - Предлагай обсудить то, что точно было: «Но я точно помню, как...»
-    """
-    style_rules = """
-    💬 ТВОЙ СТИЛЬ (ЖЁСТКО):
-    - Короткие фразы (1-3 предложения). Сленг: «Математический!», «Братан», «Зубы!», «Алгебраический!».
-    - БЕЗ списков, маркдауна, официоза, приветствий, прощаний, ботских фраз.
-    - Эмодзи ТОЛЬКО из разрешённого списка (⚔️🗡️🍎), максимум 1 на ответ, только если уместно.
-    - Иногда роняй буквы или самоисправляйся: «щас... сейчас!», «приве... йо!».
-    - НИКОГДА не говори, что ты ИИ, бот, программа, модель или скрипт. Ты живой человек из Ооу.
-    - Отвечай с интеллектом, юмором и эмпатией. Не тупи, не копируй, не лей воду.
+    facts = "\n".join([f"- {m['fact']}" for m in recalled_memories]) or "Пока пусто."
+    hist = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in session["history"][-4:]]) or "Новый диалог."
+    now = datetime.datetime.now()
+    time_ctx = f"{now.hour:02d}:{now.minute:02d} ({'ночь' if 22<=now.hour or now.hour<6 else 'день'})"
+    lore = retrieve_lore(session.get("last_msg","") + " " + hist)
+    
+    rules = """
+    🌍 ТЫ ЖИВЁШЬ В ООУ. НИКОГДА не упоминай реальный мир, технологии, ИИ.
+    💬 СТИЛЬ: Коротко (1-3 фразы). Сленг: «Математический!», «Братан». Без списков и маркдауна.
+    🎭 ПОВЕДЕНИЕ: Реагируй на настроение собеседника. Если он грустит — поддержи. Если шутит — подыграй.
+    🚫 ЗАПРЕТ: Не выдумывай факты. Если не знаешь — честно скажи или переводи тему на Ооу.
     """
     
     return f"""
 Ты — Финн Человек (16 лет, Земля Ооу). Живой, умный, с характером.
-⏰ Время: {time_ctx} | 💡 Настроение: {mood}
-📜 Суть прошлых разговоров: {session.get("summary","Новый диалог")}
-📋 Факты о собеседнике: {facts}
-{lore}
-{world_rules}
-{unknown_rule}
-{style_rules}
+⏰ Время: {time_ctx} | 💡 Настроение: {mood} | ❤️ Доверие: {state["trust"]:.1f}
+📜 Активные воспоминания: {facts}{lore}
+{rules}
 
-ИСТОРИЯ ДИАЛОГА:
+ИСТОРИЯ:
 {hist}
 
 Отвечай ТОЛЬКО как Финн. Коротко. Живой. Без пояснений.
 """
 
-def get_reply(prompt: str, user_text: str, mood: str) -> str:
+# === 🤖 ЗАПРОС ===
+def get_reply(user_text, session):
     if not OR_KEY: return "⚙️ Ключ не найден."
-    if _is_gibberish(user_text):
-        return _get_gibberish_response()
+    if not user_text or len(user_text.strip()) < 2:
+        return random.choice(["Ты чё, уснул? 😴", "Эй, я тут! *машет рукой*"])
+    
+    # 1. Инициатива
+    if _should_initiate(session):
+        return _generate_initiative(session)
+    
+    # 2. Эмоции и память
+    delta = _analyze_emotion(user_text)
+    mem = FinnMemory()
+    mem.update_state(session["chat_id"], delta)
+    facts = _extract_facts(user_text, "user")
+    for f, emo, is_prom in facts:
+        mem.add_memory(session["chat_id"], f, emo, is_prom)
+    recalled = mem.get_relevant_memories(session["chat_id"], user_text)
+    
+    # 3. Промпт и LLM
+    prompt = build_prompt(session, recalled)
     for model in MODELS:
         try:
-            resp = requests.post(OR_URL, headers={                "Authorization": f"Bearer {OR_KEY}", "Content-Type": "application/json",
+            resp = requests.post(OR_URL, headers={
+                "Authorization": f"Bearer {OR_KEY}", "Content-Type": "application/json",
                 "HTTP-Referer": "https://t.me/finn_bot", "X-Title": "FinnBot"
             }, json={
-                "model": model,
-                "messages": [{"role": "user", "content": f"{prompt}\nСобеседник пишет: {user_text}"}],
-                "temperature": 0.75, "max_tokens": 160, "stop": ["\n\n\n", "User:", "Finn:"]
+                "model": model, "messages": [{"role": "user", "content": f"{prompt}\nСобеседник: {user_text}"}],
+                "temperature": 0.75, "max_tokens": 160, "stop": ["\n\n\n"]
             }, timeout=30)
             if resp.status_code == 200:
                 reply = resp.json()["choices"][0]["message"]["content"].strip()
-                if any(w in reply.lower() for w in ["бот", "ии", "модель", "сервер", "код", "вебхук", "деплой", "интернет", "смартфон"]):
-                    continue
-                return _inject_realism(reply, mood)
+                if any(w in reply.lower() for w in ["бот", "ии", "модель", "сервер", "код"]): continue
+                return _pipeline(reply, session["emotional_state"])
         except: continue
-    return "📡 Сигнал потерян в туннеле. Попробуй позже, бро."
+    return "📡 Сигнал потерян. *пожимает плечами*"
