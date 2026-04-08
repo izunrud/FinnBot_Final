@@ -96,7 +96,8 @@ def _strip_markdown(text):
 
 def _filter_forbidden(text):
     result = text
-    for f, r in FORBIDDEN.items():        if f in result.lower():
+    for f, r in FORBIDDEN.items():
+        if f in result.lower():
             result = re.sub(re.escape(f), r, result, flags=re.IGNORECASE)
     return result
 
